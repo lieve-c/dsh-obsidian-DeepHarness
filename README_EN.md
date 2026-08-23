@@ -92,7 +92,7 @@ After enabling the plugin, click the bot icon in the left ribbon to open the cha
 | Task timeout | 600s | Auto-stops the run when exceeded |
 | Conversation memory | on | Context refill |
 | Tool execution mode | default (native) | native / code / both (tool backend, not a file sandbox) |
-| Model | DeepSeek V4 Flash | Default model; switchable from the panel toolbar |
+| Model | DeepSeek V4 Flash | Default model; switchable from the panel toolbar. Vision Exp requires the OpenCode Go provider and ignores the reasoning effort setting |
 | Reasoning effort | high | off / high / max; switchable from the toolbar |
 | Security mode | workspace write | read-only / workspace write / full access |
 | Show thinking | on | Collapsible thinking block before the answer |

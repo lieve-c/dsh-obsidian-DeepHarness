@@ -200,7 +200,7 @@ Copy-Item dist\main.js, dist\manifest.json, dist\styles.css "$V\.obsidian\plugin
 | 任务超时 | 600s | 超时自动停止 |
 | 对话记忆 | 开 | 上下文回填 |
 | 工具执行模式 | 默认（native） | native / code / both（工具后端，不是文件沙箱开关） |
-| 模型（Model） | DeepSeek V4 Flash | 默认模型，顶栏可快速切换 |
+| 模型（Model） | DeepSeek V4 Flash | 默认模型，顶栏可快速切换；Vision Exp 需搭配 OpenCode Go 提供方使用，且不支持推理等级（自动省略该参数） |
 | 推理等级（Thinking） | high | off / high / max，顶栏可切换 |
 | 安全模式（Security） | 工作区写入 | 只读 / 工作区写入 / 完全访问 |
 | 显示思考过程 | 开 | 回答前显示可折叠思考过程 |

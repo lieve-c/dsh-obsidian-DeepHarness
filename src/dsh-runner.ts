@@ -83,13 +83,22 @@ const OPENCODE_GO_PROVIDER_FALLBACK = [
   '        supportsDeveloperRole: false',
   '        maxTokensField: max_tokens',
   '      models:',
-  '        - id: deepseek-v4-flash',
-  '          name: DeepSeek V4 Flash',
-  '          contextWindow: 131072',
-  '        - id: deepseek-v4-pro',
-  '          name: DeepSeek V4 Pro',
+      '        - id: deepseek-v4-flash',
+      '          name: DeepSeek V4 Flash',
+      '          contextWindow: 131072',
+      '        - id: deepseek-v4-flash-vision-exp',
+      '          name: DeepSeek V4 Flash Vision Exp',
+      '          contextWindow: 131072',
+      '        - id: deepseek-v4-pro',
+      '          name: DeepSeek V4 Pro',
   '          contextWindow: 131072',
 ];
+
+/**
+ * Models that reject the `reasoningEffort` agent setting entirely
+ * (e.g. the OpenCode Go vision model). For these we omit the field.
+ */
+const NO_REASONING_MODELS = new Set(['deepseek-v4-flash-vision-exp']);
 
 /** Extract a top-level YAML block (e.g. `llm-pi-ai:`) from a settings file. */
 function extractTopLevelBlock(text: string, key: string): string | null {
@@ -422,9 +431,13 @@ export class DshRunner {
         'agent-default-model:',
         `  provider: ${provider}`,
         `  model: ${sel.model}`,
-        `  reasoningEffort: ${sel.effort}`,
-        '',
       );
+      // Some models (e.g. the OpenCode Go vision model) reject any
+      // reasoningEffort value; skip the field for those.
+      if (!NO_REASONING_MODELS.has(sel.model)) {
+        settingsLines.push(`  reasoningEffort: ${sel.effort}`);
+      }
+      settingsLines.push('');
       fs.writeFileSync(path.join(base, 'settings.yaml'), settingsLines.join('\n'), 'utf8');
       return base;
     } catch {

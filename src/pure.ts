@@ -103,6 +103,7 @@ export const DEFAULT_CONTEXT_WINDOW = 1_000_000;
 /** Context window (tokens) per model id. */
 export const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'deepseek-v4-flash': 1_000_000,
+  'deepseek-v4-flash-vision-exp': 131_072,
   'deepseek-v4-pro': 1_000_000,
 };
 
