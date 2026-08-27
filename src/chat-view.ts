@@ -1,5 +1,6 @@
 import * as path from 'path';
-import { ItemView, WorkspaceLeaf, MarkdownRenderer, Notice, setIcon, Menu, MarkdownView, Keymap } from 'obsidian';
+import * as fs from 'fs';
+import { ItemView, WorkspaceLeaf, MarkdownRenderer, Notice, setIcon, Menu, MarkdownView, Keymap, TFile } from 'obsidian';
 import type DshPlugin from './main';
 import { DshClient } from './dsh-client';
 import { DshRunner } from './dsh-runner';
@@ -46,6 +47,9 @@ export class ChatView extends ItemView {
   private skillBtn!: HTMLButtonElement;
   private historyBtn!: HTMLButtonElement;
   private mention: MentionSuggest | null = null;
+  private attachments: { dataUrl: string; name: string }[] = [];
+  private attachmentWrap: HTMLElement | null = null;
+  private attachInput: HTMLInputElement | null = null;
   /** Last focused markdown view, so its selection can be read even while the
    *  chat panel has focus. Kept in sync via the active-leaf-change event. */
   private lastMarkdownView: MarkdownView | null = null;
@@ -134,6 +138,12 @@ export class ChatView extends ItemView {
     this.skillBtn.setAttribute('title', t('chat.skillButton'));
     this.skillBtn.onclick = () => this.toggleSkillPanel();
 
+    // Image attach button: opens a file picker (paste/drag-drop also work).
+    const attachBtn = topToolbar.createEl('button', { cls: 'dsh-top-btn dsh-top-attach' });
+    setIcon(attachBtn, 'image');
+    attachBtn.setAttribute('aria-label', t('chat.attach'));
+    attachBtn.setAttribute('title', t('chat.attach'));
+
     this.historyBtn = topToolbar.createEl('button', { cls: 'dsh-top-btn dsh-top-history' });
     setIcon(this.historyBtn, 'clock');
     this.historyBtn.setAttribute('aria-label', '历史记录');
@@ -162,6 +172,43 @@ export class ChatView extends ItemView {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         void this.sendMessage();
+      }
+    });
+
+    // Image attachments: preview strip + hidden file input.
+    this.attachmentWrap = composer.createDiv({ cls: 'dsh-attachments' });
+    this.attachInput = document.createElement('input');
+    this.attachInput.type = 'file';
+    this.attachInput.accept = 'image/*';
+    this.attachInput.multiple = true;
+    this.attachInput.style.display = 'none';
+    composer.appendChild(this.attachInput);
+    this.attachInput.onchange = () => {
+      if (this.attachInput?.files?.length) {
+        this.addImageFiles(Array.from(this.attachInput.files));
+        this.attachInput.value = '';
+      }
+    };
+    attachBtn.onclick = () => this.attachInput?.click();
+
+    // Paste image(s) straight from the clipboard.
+    this.editor.el.addEventListener('paste', (e) => {
+      const files = Array.from(e.clipboardData?.files ?? []);
+      const images = files.filter((f) => f.type.startsWith('image/'));
+      if (images.length > 0) {
+        e.preventDefault();
+        this.addImageFiles(images);
+      }
+    });
+
+    // Drag & drop image(s) onto the composer.
+    this.editor.el.addEventListener('dragover', (e) => e.preventDefault());
+    this.editor.el.addEventListener('drop', (e) => {
+      const files = Array.from(e.dataTransfer?.files ?? []);
+      const images = files.filter((f) => f.type.startsWith('image/'));
+      if (images.length > 0) {
+        e.preventDefault();
+        this.addImageFiles(images);
       }
     });
 
@@ -298,13 +345,69 @@ export class ChatView extends ItemView {
     this.memory = [];
     this.contextMeter?.reset();
     this.messagesContainer.empty();
+    this.attachments = [];
+    this.renderAttachmentPreviews();
     this.showWelcome();
     new Notice(t('chat.cleared'));
   }
 
+  /** Add image files (file picker, paste or drag-drop) as pending attachments. */
+  private addImageFiles(files: File[]): void {
+    for (const file of files) {
+      if (this.attachments.length >= 10) break;
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          this.attachments.push({
+            dataUrl: reader.result,
+            name: file.name || `image-${Date.now()}.png`,
+          });
+          this.renderAttachmentPreviews();
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
+  /** Re-render the pending attachment thumbnails. */
+  private renderAttachmentPreviews(): void {
+    if (!this.attachmentWrap) return;
+    this.attachmentWrap.empty();
+    this.attachments.forEach((att, index) => {
+      const box = this.attachmentWrap!.createDiv({ cls: 'dsh-attachment' });
+      box.createEl('img', { attr: { src: att.dataUrl, alt: att.name } });
+      const remove = box.createEl('button', { cls: 'dsh-attachment-remove' });
+      setIcon(remove, 'x');
+      remove.setAttribute('aria-label', t('chat.removeImage'));
+      remove.onclick = (e) => {
+        e.stopPropagation();
+        this.attachments.splice(index, 1);
+        this.renderAttachmentPreviews();
+      };
+    });
+  }
+
+  /** Persist pending attachments into the vault; returns absolute file paths. */
+  private async saveAttachments(vaultRoot: string): Promise<string[]> {
+    if (this.attachments.length === 0) return [];
+    const dir = path.join(vaultRoot, 'Harness', 'attachments');
+    fs.mkdirSync(dir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const saved: string[] = [];
+    this.attachments.forEach((att, index) => {
+      const safe = att.name.replace(/[^\w.\-]/g, '_').slice(-40) || 'image.png';
+      const filePath = path.join(dir, `${stamp}-${index}-${safe}`);
+      const base64 = att.dataUrl.split(',')[1];
+      fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
+      saved.push(filePath);
+    });
+    return saved;
+  }
+
   private async sendMessage(): Promise<void> {
     const message = this.editor.getText().trim();
-    if (!message || this.running) {
+    const hasAttachments = this.attachments.length > 0;
+    if ((!message && !hasAttachments) || this.running) {
       if (this.running) new Notice(t('chat.busy'));
       return;
     }
@@ -330,16 +433,42 @@ export class ChatView extends ItemView {
       return;
     }
 
+    const vaultRoot = this.plugin.getVaultRoot();
+    const memorySummary = this.buildMemorySummary();
+
+    // Persist image attachments into the vault, then fold their paths into
+    // the task so a vision-capable model can actually read them.
+    const savedImages = await this.saveAttachments(vaultRoot);
+    let userContent = message;
+    if (savedImages.length > 0) {
+      userContent += `\n\n${t('chat.attachPrompt')}:\n${savedImages.map((p) => `- ${p}`).join('\n')}`;
+    }
+
     this.editor.clear();
-    this.renderMessage('user', message);
+    this.renderMessage('user', message || t('chat.attachOnly'));
+    if (savedImages.length > 0) {
+      const bubble = this.messagesContainer.lastElementChild as HTMLElement | null;
+      if (bubble) {
+        const row = bubble.createDiv({ cls: 'dsh-message-images' });
+        for (const p of savedImages) {
+          const rel = path.relative(vaultRoot, p).split(path.sep).join('/');
+          const file = this.app.vault.getAbstractFileByPath(rel);
+          if (file instanceof TFile) {
+            row.createEl('img', {
+              attr: { src: this.app.vault.getResourcePath(file), alt: path.basename(p) },
+            });
+          }
+        }
+      }
+    }
+    this.attachments = [];
+    this.renderAttachmentPreviews();
 
     this.running = true;
     this.abortController = new AbortController();
     this.setButtonToStop();
 
-    const vaultRoot = this.plugin.getVaultRoot();
-    const memorySummary = this.buildMemorySummary();
-    const task = this.runner.buildTask(message, memorySummary);
+    const task = this.runner.buildTask(userContent, memorySummary);
     // Context meter: account for this turn's prompt (system persona +
     // assembled task) right when it is sent.
     if (this.contextMeter) {

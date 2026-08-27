@@ -88,6 +88,7 @@ const OPENCODE_GO_PROVIDER_FALLBACK = [
       '          contextWindow: 131072',
       '        - id: deepseek-v4-flash-vision-exp',
       '          name: DeepSeek V4 Flash Vision Exp',
+      '          input: [text, image]',
       '          contextWindow: 131072',
       '        - id: deepseek-v4-pro',
       '          name: DeepSeek V4 Pro',
